@@ -9,13 +9,29 @@ exports.LoadUtils = () => {
         return await window.Store.ForwardUtils.forwardMessages({'chat': chat, 'msgs' : [msg], 'multicast': true, 'includeCaption': true, 'appendedText' : undefined});
     };
 
+    /**
+     * VEX CODE FIX (2025-01-19): Fix for markedUnread error
+     * Issue: https://github.com/pedroslopez/whatsapp-web.js/issues/5718
+     * The sendSeen function was throwing "Cannot read properties of undefined (reading 'markedUnread')"
+     * This fix wraps the call in try-catch to handle the error gracefully
+     */
     window.WWebJS.sendSeen = async (chatId) => {
         const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
         if (chat) {
-            window.Store.WAWebStreamModel.Stream.markAvailable();
-            await window.Store.SendSeen.sendSeen(chat);
-            window.Store.WAWebStreamModel.Stream.markUnavailable();
-            return true;
+            try {
+                window.Store.WAWebStreamModel.Stream.markAvailable();
+                await window.Store.SendSeen.sendSeen(chat);
+                window.Store.WAWebStreamModel.Stream.markUnavailable();
+                return true;
+            } catch (error) {
+                // Gracefully handle markedUnread and other sendSeen errors
+                // The chat still exists, we just couldn't mark it as seen
+                console.warn('[WWebJS] sendSeen error (non-critical):', error.message);
+                try {
+                    window.Store.WAWebStreamModel.Stream.markUnavailable();
+                } catch (e) { /* ignore */ }
+                return false;
+            }
         }
         return false;
     };
