@@ -854,7 +854,7 @@ class Client extends EventEmitter {
                 S.Chat.on('change:unreadCount', (chat) => {window.onChatUnreadCountEvent(chat);});
             }
 
-            if (window.compareWwebVersions(window.Debug.VERSION, '>=', '2.3000.1014111620')) {
+            if (window.compareWwebVersions(window.Debug.VERSION, '>=', '2.3000.1014111620') && window.Store.AddonReactionTable) {
                 const module = window.Store.AddonReactionTable;
                 const ogMethod = module.bulkUpsert;
                 module.bulkUpsert = ((...args) => {
@@ -872,6 +872,7 @@ class Client extends EventEmitter {
                 }).bind(module);
 
                 const pollVoteModule = window.Store.AddonPollVoteTable;
+                if (!pollVoteModule) return;
                 const ogPollVoteMethod = pollVoteModule.bulkUpsert;
 
                 pollVoteModule.bulkUpsert = (async (...args) => {
@@ -903,7 +904,7 @@ class Client extends EventEmitter {
 
                     return ogPollVoteMethod.apply(pollVoteModule, args);
                 }).bind(pollVoteModule);
-            } else {
+            } else if (window.Store.createOrUpdateReactionsModule) {
                 const module = window.Store.createOrUpdateReactionsModule;
                 const ogMethod = module.createOrUpdateReactions;
                 module.createOrUpdateReactions = ((...args) => {
