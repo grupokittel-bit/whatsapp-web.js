@@ -96,7 +96,28 @@ class Client extends EventEmitter {
      * Injection logic
      * Private function
      */
-    async inject() {
+    async inject(maxRetries = 3) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                return await this._doInject();
+            } catch (err) {
+                const isNavigationError = err && (
+                    err.message?.includes('Target closed') ||
+                    err.message?.includes('Execution context was destroyed') ||
+                    err.message?.includes('Session closed') ||
+                    err.message?.includes('Protocol error')
+                );
+                if (isNavigationError && attempt < maxRetries) {
+                    console.warn(`[wwebjs] inject() attempt ${attempt} failed (${err.message}), retrying in 2s...`);
+                    await new Promise(r => setTimeout(r, 2000));
+                    continue;
+                }
+                throw err;
+            }
+        }
+    }
+
+    async _doInject() {
         if(this.options.authTimeoutMs === undefined || this.options.authTimeoutMs==0){
             this.options.authTimeoutMs = 30000;
         }
