@@ -10,7 +10,6 @@
  */
 async function exposeFunctionIfAbsent(page, name, fn) {
     // Try to remove existing Puppeteer binding first (Puppeteer 20.6+)
-    // This clears Puppeteer's internal tracking, even if window[name] exists
     if (typeof page.removeExposedFunction === 'function') {
         try {
             await page.removeExposedFunction(name);
@@ -19,14 +18,13 @@ async function exposeFunctionIfAbsent(page, name, fn) {
         }
     }
 
-    // Check if function exists in window after removal attempt
-    const existsInWindow = await page.evaluate((name) => {
-        return !!window[name];
-    }, name);
-
-    // If still exists in window (from a different source), skip
-    if (existsInWindow) {
-        return;
+    // Also remove from window to handle stale bindings after navigation
+    try {
+        await page.evaluate((name) => {
+            delete window[name];
+        }, name);
+    } catch (_) {
+        // Page might not be ready yet
     }
 
     await page.exposeFunction(name, fn);
