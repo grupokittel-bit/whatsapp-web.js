@@ -89,6 +89,7 @@ class Client extends EventEmitter {
         this.currentIndexHtml = null;
         this.lastLoggedOut = false;
         this._authEventListenersInjected = false; // Prevent duplicate event listeners
+        this._hasSyncedHandlerRunning = false; // Prevent concurrent hasSynced handler executions
 
         Util.setFfmpegPath(this.options.ffmpegPath);
     }
@@ -235,6 +236,13 @@ class Client extends EventEmitter {
         });
 
         await exposeFunctionIfAbsent(this.pupPage, 'onAppStateHasSyncedEvent', async () => {
+            if (this._hasSyncedHandlerRunning) {
+                console.log('[wwebjs] hasSynced handler already running, skipping duplicate');
+                return;
+            }
+            this._hasSyncedHandlerRunning = true;
+
+            try {
             const authEventPayload = await this.authStrategy.getAuthEventPayload();
             /**
                  * Emitted when authentication is successful
@@ -319,6 +327,11 @@ class Client extends EventEmitter {
                  */
             this.emit(Events.READY);
             this.authStrategy.afterAuthReady();
+            } catch (err) {
+                console.error('[wwebjs] hasSynced handler error:', err?.message || err);
+            } finally {
+                this._hasSyncedHandlerRunning = false;
+            }
         });
         let lastPercent = null;
         await exposeFunctionIfAbsent(this.pupPage, 'onOfflineProgressUpdateEvent', async (percent) => {
@@ -428,6 +441,9 @@ class Client extends EventEmitter {
         await this.inject();
 
         this.pupPage.on('framenavigated', async (frame) => {
+            // Only handle main frame navigations, not subframes
+            if (frame !== this.pupPage.mainFrame()) return;
+
             if(frame.url().includes('post_logout=1') || this.lastLoggedOut) {
                 this.emit(Events.DISCONNECTED, 'LOGOUT');
                 await this.authStrategy.logout();
@@ -435,9 +451,10 @@ class Client extends EventEmitter {
                 await this.authStrategy.afterBrowserInitialized();
                 this.lastLoggedOut = false;
             }
-            // Reset flag so auth event listeners are re-registered in the new page context
+            // Reset flags so auth event listeners are re-registered in the new page context
             // After navigation, the old JS context is destroyed along with all event listeners
             this._authEventListenersInjected = false;
+            this._hasSyncedHandlerRunning = false;
             await this.inject();
         });
     }
