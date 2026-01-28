@@ -114,7 +114,8 @@ exports.ExposeStore = () => {
     window.Store.Settings = {
         ...window.require('WAWebUserPrefsGeneral'),
         ...window.require('WAWebUserPrefsNotifications'),
-        setPushname: window.require('WAWebSetPushnameConnAction').setPushname
+        // setPushname is loaded lazily in Client.js after module is available
+        setPushname: null
     };
     window.Store.NumberInfo = {
         ...window.require('WAPhoneUtils'),

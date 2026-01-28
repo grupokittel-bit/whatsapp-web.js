@@ -88,6 +88,7 @@ class Client extends EventEmitter {
 
         this.currentIndexHtml = null;
         this.lastLoggedOut = false;
+        this._authEventListenersInjected = false; // Prevent duplicate event listeners
 
         Util.setFfmpegPath(this.options.ffmpegPath);
     }
@@ -264,6 +265,30 @@ class Client extends EventEmitter {
                 //Load util functions (serializers, helper functions)
                 await this.pupPage.evaluate(LoadUtils);
 
+                // Wait for WAWebSetPushnameConnAction module to be available and assign to Store.Settings
+                // This module may not be loaded immediately when restoring an existing session
+                await this.pupPage.evaluate(async () => {
+                    const MAX_WAIT_MS = 10000;
+                    const POLL_INTERVAL_MS = 100;
+                    const startTime = Date.now();
+
+                    while (Date.now() - startTime < MAX_WAIT_MS) {
+                        try {
+                            const module = window.require('WAWebSetPushnameConnAction');
+                            if (module && typeof module.setPushname === 'function') {
+                                window.Store.Settings.setPushname = module.setPushname;
+                                return;
+                            }
+                        } catch (_) {
+                            // Module not yet available, continue polling
+                        }
+                        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+                    }
+
+                    // If module never loads, leave setPushname as null
+                    console.warn('[wwebjs] WAWebSetPushnameConnAction module not available after timeout');
+                });
+
                 await this.attachEventListeners();
             }
             /**
@@ -284,16 +309,24 @@ class Client extends EventEmitter {
             this.lastLoggedOut = true;
             await this.pupPage.waitForNavigation({waitUntil: 'load', timeout: 5000}).catch((_) => _);
         });
-        await this.pupPage.evaluate(() => {
-            window.AuthStore.AppState.on('change:state', (_AppState, state) => { window.onAuthAppStateChangedEvent(state); });
-            window.AuthStore.AppState.on('change:hasSynced', () => { window.onAppStateHasSyncedEvent(); });
-            window.AuthStore.Cmd.on('offline_progress_update', () => {
-                window.onOfflineProgressUpdateEvent(window.AuthStore.OfflineMessageHandler.getOfflineDeliveryProgress()); 
+        // Only register auth event listeners once to prevent duplicate READY events
+        if (!this._authEventListenersInjected) {
+            await this.pupPage.evaluate(() => {
+                // Guard against duplicate listeners in the page context as well
+                if (window._authListenersRegistered) return;
+                window._authListenersRegistered = true;
+
+                window.AuthStore.AppState.on('change:state', (_AppState, state) => { window.onAuthAppStateChangedEvent(state); });
+                window.AuthStore.AppState.on('change:hasSynced', () => { window.onAppStateHasSyncedEvent(); });
+                window.AuthStore.Cmd.on('offline_progress_update', () => {
+                    window.onOfflineProgressUpdateEvent(window.AuthStore.OfflineMessageHandler.getOfflineDeliveryProgress());
+                });
+                window.AuthStore.Cmd.on('logout', async () => {
+                    await window.onLogoutEvent();
+                });
             });
-            window.AuthStore.Cmd.on('logout', async () => {
-                await window.onLogoutEvent();
-            });
-        });
+            this._authEventListenersInjected = true;
+        }
     }
 
     /**
@@ -1398,6 +1431,10 @@ class Client extends EventEmitter {
     async setDisplayName(displayName) {
         const couldSet = await this.pupPage.evaluate(async displayName => {
             if(!window.Store.Conn.canSetMyPushname()) return false;
+            if(typeof window.Store.Settings.setPushname !== 'function') {
+                console.warn('[wwebjs] setPushname not available - WAWebSetPushnameConnAction module may not have loaded');
+                return false;
+            }
             await window.Store.Settings.setPushname(displayName);
             return true;
         }, displayName);

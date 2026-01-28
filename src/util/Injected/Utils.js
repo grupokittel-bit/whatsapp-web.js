@@ -20,7 +20,10 @@ exports.LoadUtils = () => {
         if (chat) {
             try {
                 window.Store.WAWebStreamModel.Stream.markAvailable();
-                await window.Store.SendSeen.sendSeen(chat);
+                await window.Store.SendSeen.sendSeen({
+                    chat: chat,
+                    threadId: undefined
+                });
                 window.Store.WAWebStreamModel.Stream.markUnavailable();
                 return true;
             } catch (error) {
