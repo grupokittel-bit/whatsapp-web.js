@@ -105,7 +105,8 @@ class Client extends EventEmitter {
                     err.message?.includes('Target closed') ||
                     err.message?.includes('Execution context was destroyed') ||
                     err.message?.includes('Session closed') ||
-                    err.message?.includes('Protocol error')
+                    err.message?.includes('Protocol error') ||
+                    err.message?.includes('already exists')
                 );
                 if (isNavigationError && attempt < maxRetries) {
                     console.warn(`[wwebjs] inject() attempt ${attempt} failed (${err.message}), retrying in 2s...`);
@@ -434,6 +435,9 @@ class Client extends EventEmitter {
                 await this.authStrategy.afterBrowserInitialized();
                 this.lastLoggedOut = false;
             }
+            // Reset flag so auth event listeners are re-registered in the new page context
+            // After navigation, the old JS context is destroyed along with all event listeners
+            this._authEventListenersInjected = false;
             await this.inject();
         });
     }
