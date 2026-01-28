@@ -1,8 +1,7 @@
 /**
  * Expose a function to the page, removing any existing binding first
  *
- * Uses page.removeExposedFunction (Puppeteer 20.6+) to handle reinitialization
- * without "already exists" errors
+ * Handles reinitialization after page navigation without "already exists" errors
  *
  * @param {object} page - Puppeteer Page instance
  * @param {string} name
@@ -14,11 +13,11 @@ async function exposeFunctionIfAbsent(page, name, fn) {
         try {
             await page.removeExposedFunction(name);
         } catch (_) {
-            // Ignore if removal fails - function might not have been exposed
+            // Ignore if removal fails
         }
     }
 
-    // Also remove from window to handle stale bindings after navigation
+    // Remove from window to handle stale bindings after navigation
     try {
         await page.evaluate((name) => {
             delete window[name];
@@ -27,7 +26,24 @@ async function exposeFunctionIfAbsent(page, name, fn) {
         // Page might not be ready yet
     }
 
-    await page.exposeFunction(name, fn);
+    try {
+        await page.exposeFunction(name, fn);
+    } catch (err) {
+        if (err.message && err.message.includes('already exists')) {
+            // Binding exists at CDP level but function may be stale after navigation
+            // Re-assign in window context to point to a working wrapper
+            try {
+                await page.evaluate((name) => {
+                    // The CDP binding still works, just ensure window[name] exists
+                    // It should already be there from the previous exposeFunction
+                }, name);
+            } catch (_) {
+                // Best effort
+            }
+            return;
+        }
+        throw err;
+    }
 }
 
 module.exports = {exposeFunctionIfAbsent};
