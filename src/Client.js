@@ -1637,18 +1637,22 @@ class Client extends EventEmitter {
      * @returns {Promise<string>}
      */
     async getProfilePicUrl(contactId) {
-        const profilePic = await this.pupPage.evaluate(async contactId => {
+        const profilePic = await this.pupPage.evaluate(async (contactId) => {
             try {
-                const chatWid = window.Store.WidFactory.createWid(contactId);
-                return window.compareWwebVersions(window.Debug.VERSION, '<', '2.3000.0')
-                    ? await window.Store.ProfilePic.profilePicFind(chatWid)
-                    : await window.Store.ProfilePic.requestProfilePicFromServer(chatWid);
+                // fix (2026-07-08, ported from upstream pedroslopez/whatsapp-web.js#main):
+                // current WA Web requestProfilePicFromServer expects the CHAT object,
+                // not a bare Wid — passing a Wid throws "Cannot read properties of
+                // undefined (reading 'isNewsletter')" and no profile pic is ever returned.
+                const chat = await window.WWebJS.getChat(contactId);
+                return await window
+                    .require('WAWebContactProfilePicThumbBridge')
+                    .requestProfilePicFromServer(chat);
             } catch (err) {
-                if(err.name === 'ServerStatusCodeError') return undefined;
+                if (err.name === 'ServerStatusCodeError') return undefined;
                 throw err;
             }
         }, contactId);
-        
+
         return profilePic ? profilePic.eurl : undefined;
     }
 
