@@ -310,6 +310,13 @@ exports.LoadUtils = () => {
             ...extraOptions
         };
         
+        // VEX CODE 2026-09-17 (fix): o MediaData devolvido por processMediaData traz
+        // __x_id (id interno do modelo) e o spread de mediaOptions acima ATROPELA o
+        // id da Msg -> getValidatedSender() quebra com "Data passed to getter must
+        // include an id property" e NENHUM anexo sai (texto passa, midia nao).
+        // Upstream: wwebjs/whatsapp-web.js PR #201923.
+        delete message.__x_id;
+
         // Bot's won't reply if canonicalUrl is set (linking)
         if (botOptions) {
             delete message.canonicalUrl;
