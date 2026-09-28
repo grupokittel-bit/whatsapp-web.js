@@ -450,6 +450,10 @@ class Message extends Base {
         }
 
         const result = await this.client.pupPage.evaluate(async (msgId) => {
+            // 🩹 VEX CODE 28/09 DIAGNÓSTICO: devolve onde o erro minificado estoura (sem mudar o resultado)
+            let __passo = 'inicio'; const __m0 = window.Store.Msg.get(msgId);
+            try {
+
             const msg = window.Store.Msg.get(msgId) || (await window.Store.Msg.getMessagesById([msgId]))?.messages?.[0];
 
             // REUPLOADING mediaStage means the media is expired and the download button is spinning, cannot be downloaded now
@@ -458,7 +462,7 @@ class Message extends Base {
             }
             if (msg.mediaData.mediaStage != 'RESOLVED') {
                 // try to resolve media
-                await msg.downloadMedia({
+                __passo = 'msg.downloadMedia'; await msg.downloadMedia({
                     downloadEvenIfExpensive: true,
                     rmrReason: 1
                 });
@@ -474,16 +478,26 @@ class Message extends Base {
                     addAnnotations: function() { return this; },
                     addPoint: function() { return this; }
                 };
-                const decryptedMedia = await window.Store.DownloadManager.downloadAndMaybeDecrypt({
+                __passo = 'downloadAndMaybeDecrypt'; const __baixar = () => window.Store.DownloadManager.downloadAndMaybeDecrypt({
                     directPath: msg.directPath,
                     encFilehash: msg.encFilehash,
                     filehash: msg.filehash,
                     mediaKey: msg.mediaKey,
                     mediaKeyTimestamp: msg.mediaKeyTimestamp,
                     type: msg.type,
+                    mimetype: msg.mimetype, // 🩹 VEX 28/09: WA novo confere o tipo (sem isto: InvalidMediaFileType em imagem/áudio)
                     signal: (new AbortController).signal,
                     downloadQpl: mockQpl
                 });
+                let decryptedMedia;
+                try { decryptedMedia = await __baixar(); }
+                catch (__e1) {
+                    const __b = msg.mediaData && msg.mediaData.mediaBlob;
+                    if (!__b) throw __e1;
+                    const __blob = typeof __b.forceToBlob === 'function' ? await __b.forceToBlob() : __b;
+                    if (!__blob || typeof __blob.arrayBuffer !== 'function') throw __e1;
+                    decryptedMedia = await __blob.arrayBuffer(); // 🩹 VEX 28/09: reserva — mídia já baixada pelo WA Web
+                }
 
                 const data = await window.WWebJS.arrayBufferToBase64Async(decryptedMedia);
 
@@ -497,8 +511,17 @@ class Message extends Base {
                 if(e.status && e.status === 404) return undefined;
                 throw e;
             }
-        }, this.id._serialized);
+        
+            } catch (__e) {
+                return { __vexErro: { passo: __passo, name: __e && __e.name, message: __e && __e.message, status: __e && __e.status,
+                    chaves: __e ? Object.keys(__e).slice(0, 12) : [], stack: String(__e && __e.stack).slice(0, 1200),
+                    tipo: __m0 && __m0.type, estagio: __m0 && __m0.mediaData && __m0.mediaData.mediaStage,
+                    temDirectPath: !!(__m0 && __m0.directPath), temMediaKey: !!(__m0 && __m0.mediaKey), msgId: !!msgId } };
+            }
+        }, this.id._serialized ?? this.id.$1); // 🩹 VEX 28/09: WA novo usa $1 (upstream PR #201840)
 
+        if (result && result.__vexErro) { console.error('[WWEBJS-DIAG] downloadMedia', JSON.stringify(result.__vexErro));
+            const __err = new Error(result.__vexErro.message); __err.name = result.__vexErro.name; if (result.__vexErro.status) __err.status = result.__vexErro.status; throw __err; }
         if (!result) return undefined;
         return new MessageMedia(result.mimetype, result.data, result.filename, result.filesize);
     }

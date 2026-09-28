@@ -3,6 +3,21 @@
 exports.LoadUtils = () => {
     window.WWebJS = {};
 
+    // 🩹 VEX CODE 28/09/2026 — WA Web 2.3000.1043xxx+ tirou o `_serialized` da MsgKey (o valor segue em
+    // toString()/$1). Sem isto, todo Msg.get(key._serialized) procura por undefined e o downloadMedia
+    // estoura "t: t" (upstream wwebjs PR #201901). Getter no protótipo; o setter preserva as versões
+    // antigas, que gravam `_serialized` como propriedade própria no construtor.
+    try {
+        const MsgKeyProto = window.require('WAWebMsgKey').prototype;
+        if (!Object.getOwnPropertyDescriptor(MsgKeyProto, '_serialized')) {
+            Object.defineProperty(MsgKeyProto, '_serialized', {
+                get() { return this.toString(); },
+                set(value) { Object.defineProperty(this, '_serialized', { value, writable: true, enumerable: true, configurable: true }); },
+                configurable: true,
+            });
+        }
+    } catch (e) { /* build sem WAWebMsgKey: segue como antes */ }
+
     window.WWebJS.forwardMessage = async (chatId, msgId) => {
         const msg = window.Store.Msg.get(msgId) || (await window.Store.Msg.getMessagesById([msgId]))?.messages?.[0];
         const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
@@ -558,6 +573,12 @@ exports.LoadUtils = () => {
 
     window.WWebJS.getMessageModel = (message) => {
         const msg = message.serialize();
+        // 🩹 VEX CODE 28/09/2026 — o id que vai pro Node precisa do `_serialized` (downloadMedia e o backend o usam).
+        try {
+            if (msg.id && msg.id._serialized === undefined && message.id) {
+                msg.id._serialized = message.id._serialized || message.id.$1 || message.id.toString();
+            }
+        } catch (e) { /* segue como antes */ }
 
         msg.isEphemeral = message.isEphemeral;
         msg.isStatusV3 = message.isStatusV3;
